@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Mint Cleaner (Run as Root)
+Comment=Run the Mint Cleaner GUI with administrative privileges
+Icon=/usr/share/icons/Papirus-Light/24x24/panel/indicator-trashindicator-attention.svg
+Exec=/usr/bin/python3 /home/joruf/Dokumente/GitHub/MintCleaner/mint-cleaner.py
+Terminal=false
+Type=Application
+Categories=Utility;System;
+StartupNotify=true
+
