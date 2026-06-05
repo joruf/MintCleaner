@@ -50,7 +50,7 @@ User tasks (run as your user)
 ## Usage
 
 ```bash
-git clone https://github.com/yourusername/mintcleaner.git
-cd mintcleaner
-chmod +x mintcleaner.py
-./mintcleaner.py
+cd MintCleaner
+git clone https://github.com/joruf/MintCleaner.git
+chmod +x mint-cleaner.py
+./mint-cleaner.py
