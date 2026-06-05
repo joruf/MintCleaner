@@ -6,11 +6,12 @@ Features:
 - Single privileged helper via pkexec for root tasks, one authentication at startup.
 - GUI becomes visible only AFTER authentication succeeded.
 - Live size analysis per measurable category, labels show current MB.
-- Auto select items above a configurable threshold in MB.
+- Auto select items above a configured threshold in MB.
 - Auto deselect items that are 0 MB or unknown size.
 - User deletion mode selectable: Move to Trash (default) or Delete immediately.
   Note: Mode applies only to user scoped paths.
   Trash contents (~/.local/share/Trash/*) are always deleted when selected.
+- New options: Flatpak app cache, APT package cache (with size), old kernel removal.
 
 No popups before or after deletion, progress is logged in the UI.
 """
@@ -301,6 +302,18 @@ class RootHelper:
         except Exception as e:
             return [(f"ERROR:{e}", 1, str(e))]
 
+    def get_size_of_patterns(self, patterns: List[str]) -> int:
+        """
+        Get total size (bytes) of root‑owned patterns using the helper.
+
+        :param patterns: List of glob patterns (root accessible).
+        :return: Total size in bytes, or 0 on error.
+        """
+        try:
+            return self._rpc({"action": "get_size", "args": {"patterns": patterns}})
+        except Exception:
+            return 0
+
 
 HELPER = RootHelper()
 
@@ -309,6 +322,7 @@ HELPER = RootHelper()
 class MintCleanerApp(tk.Tk):
     """
     Tkinter GUI for selective cleanup with dynamic size analysis and a single pkexec helper.
+    Modern UI with improved layout and styling.
     """
 
     def __init__(self, start_helper: bool = False):
@@ -318,8 +332,11 @@ class MintCleanerApp(tk.Tk):
         """
         super().__init__()
         self.title("Mint Cleaner, Selective Temp and Cache Cleanup")
-        self.geometry("900x820")
-        self.minsize(900, 820)
+        self.geometry("950x920")
+        self.minsize(900, 850)
+
+        # Configure modern style
+        self._setup_styles()
 
         self.username = getpass.getuser()
 
@@ -339,11 +356,15 @@ class MintCleanerApp(tk.Tk):
         self.var_flatpak_repair_system = tk.BooleanVar(value=False) # flatpak repair --system
         self.var_apt = tk.BooleanVar(value=False)                 # apt clean/autoclean/autoremove
         self.var_journal = tk.BooleanVar(value=False)             # journalctl vacuum
+        # New options
+        self.var_flatpak_app_cache = tk.BooleanVar(value=False)   # ~/.var/app/*/cache/*
+        self.var_apt_cache = tk.BooleanVar(value=False)           # /var/cache/apt/archives/*
+        self.var_old_kernels = tk.BooleanVar(value=False)         # apt autoremove --purge
 
         self.journal_retention = tk.StringVar(value="3d")
         self.var_select_all = tk.BooleanVar(value=False)
 
-        # Patterns for size analysis
+        # Patterns for size analysis (user measurable only)
         self.patterns: Dict[str, List[str]] = {
             "tmp": ["/tmp/*", "/var/tmp/*"],
             "user_cache": ["~/.cache/*"],
@@ -362,6 +383,7 @@ class MintCleanerApp(tk.Tk):
             "flatpak_syscache": ["/var/tmp/flatpak-cache/*"],
             "apt": ["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"],
             "journal": ["/var/log/journal/*", "/run/log/journal/*"],
+            "flatpak_app_cache": ["~/.var/app/*/cache/*"],
         }
 
         # Bookkeeping
@@ -375,132 +397,200 @@ class MintCleanerApp(tk.Tk):
         log_append(self.log, "[OK] Privileged helper ready, authentication done at startup.")
         self.refresh_sizes()
 
+    def _setup_styles(self) -> None:
+        """
+        Configure ttk styles for a modern, clean look.
+        """
+        style = ttk.Style()
+        # Try to use 'clam' theme for a more modern appearance (available on most Linux)
+        available_themes = style.theme_names()
+        if 'clam' in available_themes:
+            style.theme_use('clam')
+        elif 'vista' in available_themes:
+            style.theme_use('vista')
+        elif 'alt' in available_themes:
+            style.theme_use('alt')
+        
+        # Configure colors and fonts
+        style.configure('TLabel', font=('Segoe UI', 10))
+        style.configure('TLabelframe', font=('Segoe UI', 10, 'bold'))
+        style.configure('TLabelframe.Label', font=('Segoe UI', 10, 'bold'))
+        style.configure('TButton', font=('Segoe UI', 9))
+        style.configure('TCheckbutton', font=('Segoe UI', 9))
+        style.configure('TEntry', font=('Segoe UI', 9))
+        
+        # Custom style for the main header
+        style.configure('Header.TLabel', font=('Segoe UI', 16, 'bold'))
+
     def _build_ui(self) -> None:
         """
-        Build the complete UI layout.
+        Build the complete UI layout with modern structure and new options.
         """
-        frm = ttk.Frame(self, padding=12)
-        frm.pack(fill=tk.BOTH, expand=True)
+        # Main container with padding
+        main_container = ttk.Frame(self, padding=15)
+        main_container.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frm, text="Mint Cleaner, choose what to clear", font=("Sans", 16, "bold")).pack(anchor="w", pady=(0, 10))
+        # Header
+        header = ttk.Label(main_container, text="🧹 Mint Cleaner", style='Header.TLabel')
+        header.pack(anchor="w", pady=(0, 5))
+        subtitle = ttk.Label(main_container, text="Selective cleanup of temporary files and caches")
+        subtitle.pack(anchor="w", pady=(0, 15))
 
-        # Top controls
-        top_controls = ttk.Frame(frm)
-        top_controls.pack(fill=tk.X, pady=(0, 6))
-
-        ttk.Checkbutton(top_controls, text="Select all", variable=self.var_select_all, command=self.on_select_all_toggle)\
-            .pack(side=tk.LEFT)
-
-        # Deletion mode selectbox for user actions
-        mode_frame = ttk.Frame(top_controls)
+        # Top controls row: Select all and deletion mode
+        top_frame = ttk.Frame(main_container)
+        top_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Checkbutton(top_frame, text="✓ Select all", variable=self.var_select_all, 
+                       command=self.on_select_all_toggle).pack(side=tk.LEFT)
+        
+        # Deletion mode with clear label
+        mode_frame = ttk.Frame(top_frame)
         mode_frame.pack(side=tk.RIGHT)
-        ttk.Label(mode_frame, text="On user items:").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(mode_frame, text="User deletion mode:").pack(side=tk.LEFT, padx=(0, 6))
         mode_combo = ttk.Combobox(mode_frame, state="readonly",
-                                  values=["Move to Trash", "Delete immediately"],
-                                  width=20)
+                                 values=["Move to Trash", "Delete immediately"],
+                                 width=18)
         mode_combo.pack(side=tk.LEFT)
         mode_combo.set("Move to Trash")
-
+        
         def on_mode_change(event=None):
-            """
-            Update internal mode state when user selects from combobox.
-            """
             val = mode_combo.get()
             self.delete_mode_var.set("trash" if val == "Move to Trash" else "delete")
         mode_combo.bind("<<ComboboxSelected>>", on_mode_change)
 
-        ttk.Separator(frm).pack(fill=tk.X, pady=8)
+        # Separator
+        ttk.Separator(main_container, orient='horizontal').pack(fill=tk.X, pady=8)
 
-        ttk.Label(frm, text="System tasks, require root", font=("Sans", 12, "bold")).pack(anchor="w")
-        sys_frame = ttk.Frame(frm)
-        sys_frame.pack(fill=tk.X, padx=(12, 0))
+        # System tasks group (using LabelFrame)
+        sys_frame = ttk.LabelFrame(main_container, text="⚙️ System Tasks (require root privileges)", padding=10)
+        sys_frame.pack(fill=tk.X, pady=(0, 15))
 
+        # Use grid for system tasks
+        row = 0
         self.widgets["tmp"] = ttk.Checkbutton(sys_frame, text="/tmp and /var/tmp", variable=self.var_tmp)
-        self.widgets["tmp"].grid(row=0, column=0, sticky="w", pady=2)
+        self.widgets["tmp"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
         self.base_text["tmp"] = "/tmp and /var/tmp"
+        row += 1
 
-        self.widgets["apt"] = ttk.Checkbutton(sys_frame, text="Apt cleanup, clean autoclean autoremove", variable=self.var_apt)
-        self.widgets["apt"].grid(row=1, column=0, sticky="w", pady=2)
-        self.base_text["apt"] = "Apt cleanup, clean autoclean autoremove"
+        self.widgets["apt"] = ttk.Checkbutton(sys_frame, text="APT cleanup (clean, autoclean, autoremove)", variable=self.var_apt)
+        self.widgets["apt"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.base_text["apt"] = "APT cleanup (clean, autoclean, autoremove)"
+        row += 1
+
+        # APT package cache (now with size calculation via root helper)
+        self.widgets["apt_cache"] = ttk.Checkbutton(sys_frame, text="APT package cache (/var/cache/apt/archives)", variable=self.var_apt_cache)
+        self.widgets["apt_cache"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.base_text["apt_cache"] = "APT package cache (/var/cache/apt/archives)"
+        row += 1
+
+        # Remove old kernels
+        self.widgets["old_kernels"] = ttk.Checkbutton(sys_frame, text="Remove old kernels (apt autoremove --purge) [size unknown]", variable=self.var_old_kernels)
+        self.widgets["old_kernels"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.base_text["old_kernels"] = "Remove old kernels (apt autoremove --purge) [size unknown]"
+        row += 1
 
         self.widgets["flatpak_syscache"] = ttk.Checkbutton(sys_frame, text="System Flatpak cache", variable=self.var_flatpak_syscache)
-        self.widgets["flatpak_syscache"].grid(row=2, column=0, sticky="w", pady=2)
+        self.widgets["flatpak_syscache"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
         self.base_text["flatpak_syscache"] = "System Flatpak cache"
+        row += 1
 
         self.widgets["flatpak_repair_system"] = ttk.Checkbutton(sys_frame, text="Flatpak repair system [size unknown]", variable=self.var_flatpak_repair_system)
-        self.widgets["flatpak_repair_system"].grid(row=3, column=0, sticky="w", pady=2)
+        self.widgets["flatpak_repair_system"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
         self.base_text["flatpak_repair_system"] = "Flatpak repair system [size unknown]"
+        row += 1
 
-        jfrm = ttk.Frame(sys_frame)
-        jfrm.grid(row=4, column=0, sticky="w", pady=2)
-        self.widgets["journal"] = ttk.Checkbutton(jfrm, text="Systemd journal vacuum", variable=self.var_journal)
+        # Journal row with retention entry
+        journal_frame = ttk.Frame(sys_frame)
+        journal_frame.grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["journal"] = ttk.Checkbutton(journal_frame, text="Systemd journal vacuum", variable=self.var_journal)
         self.widgets["journal"].pack(side=tk.LEFT)
         self.base_text["journal"] = "Systemd journal vacuum"
-        ttk.Label(jfrm, text=" Retain:").pack(side=tk.LEFT, padx=(8, 2))
-        ttk.Entry(jfrm, width=8, textvariable=self.journal_retention).pack(side=tk.LEFT)
-        ttk.Label(jfrm, text="examples 3d, 7d, 100M").pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Label(journal_frame, text="Keep:").pack(side=tk.LEFT, padx=(8, 2))
+        ttk.Entry(journal_frame, width=8, textvariable=self.journal_retention).pack(side=tk.LEFT)
+        ttk.Label(journal_frame, text="(e.g., 3d, 7d, 100M)").pack(side=tk.LEFT, padx=(6, 0))
 
-        ttk.Separator(frm).pack(fill=tk.X, pady=8)
+        # User tasks group
+        user_frame = ttk.LabelFrame(main_container, text=f"👤 User Caches & Data (running as {self.username})", padding=10)
+        user_frame.pack(fill=tk.X, pady=(0, 15))
 
-        ttk.Label(frm, text=f"User caches, running as {self.username}", font=("Sans", 12, "bold")).pack(anchor="w")
-        user_frame = ttk.Frame(frm)
-        user_frame.pack(fill=tk.X, padx=(12, 0))
-
+        row = 0
         self.widgets["user_cache"] = ttk.Checkbutton(user_frame, text="~/.cache/*", variable=self.var_user_cache)
-        self.widgets["user_cache"].grid(row=0, column=0, sticky="w", pady=2)
+        self.widgets["user_cache"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
         self.base_text["user_cache"] = "~/.cache/*"
+        row += 1
 
         self.widgets["thumbnails"] = ttk.Checkbutton(user_frame, text="~/.thumbnails/*", variable=self.var_thumbnails)
-        self.widgets["thumbnails"].grid(row=1, column=0, sticky="w", pady=2)
+        self.widgets["thumbnails"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
         self.base_text["thumbnails"] = "~/.thumbnails/*"
+        row += 1
 
         self.widgets["trash"] = ttk.Checkbutton(user_frame, text="~/.local/share/Trash/*", variable=self.var_trash)
-        self.widgets["trash"].grid(row=2, column=0, sticky="w", pady=2)
+        self.widgets["trash"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
         self.base_text["trash"] = "~/.local/share/Trash/*"
+        row += 1
 
-        self.widgets["firefox"] = ttk.Checkbutton(user_frame, text="Firefox cache, all profiles", variable=self.var_firefox)
-        self.widgets["firefox"].grid(row=3, column=0, sticky="w", pady=2)
-        self.base_text["firefox"] = "Firefox cache, all profiles"
+        # Flatpak app cache (measurable)
+        self.widgets["flatpak_app_cache"] = ttk.Checkbutton(user_frame, text="Flatpak application cache (~/.var/app/*/cache/*)", variable=self.var_flatpak_app_cache)
+        self.widgets["flatpak_app_cache"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.base_text["flatpak_app_cache"] = "Flatpak application cache (~/.var/app/*/cache/*)"
+        row += 1
 
-        self.widgets["chrome"] = ttk.Checkbutton(user_frame, text="Chrome or Chromium cache, Default profile", variable=self.var_chrome)
-        self.widgets["chrome"].grid(row=4, column=0, sticky="w", pady=2)
-        self.base_text["chrome"] = "Chrome or Chromium cache, Default profile"
+        self.widgets["firefox"] = ttk.Checkbutton(user_frame, text="Firefox cache (all profiles)", variable=self.var_firefox)
+        self.widgets["firefox"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.base_text["firefox"] = "Firefox cache (all profiles)"
+        row += 1
 
-        self.widgets["flatpak_user_unused"] = ttk.Checkbutton(user_frame, text="Flatpak user uninstall unused [size unknown]", variable=self.var_flatpak_user)
-        self.widgets["flatpak_user_unused"].grid(row=5, column=0, sticky="w", pady=2)
-        self.base_text["flatpak_user_unused"] = "Flatpak user uninstall unused [size unknown]"
+        self.widgets["chrome"] = ttk.Checkbutton(user_frame, text="Chrome/Chromium cache (default profile)", variable=self.var_chrome)
+        self.widgets["chrome"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.base_text["chrome"] = "Chrome/Chromium cache (default profile)"
+        row += 1
+
+        self.widgets["flatpak_user_unused"] = ttk.Checkbutton(user_frame, text="Flatpak user: uninstall unused [size unknown]", variable=self.var_flatpak_user)
+        self.widgets["flatpak_user_unused"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.base_text["flatpak_user_unused"] = "Flatpak user: uninstall unused [size unknown]"
+        row += 1
 
         self.widgets["flatpak_repair_user"] = ttk.Checkbutton(user_frame, text="Flatpak repair user [size unknown]", variable=self.var_flatpak_repair_user)
-        self.widgets["flatpak_repair_user"].grid(row=6, column=0, sticky="w", pady=2)
+        self.widgets["flatpak_repair_user"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
         self.base_text["flatpak_repair_user"] = "Flatpak repair user [size unknown]"
+        row += 1
 
-        ttk.Separator(frm).pack(fill=tk.X, pady=8)
+        # Separator
+        ttk.Separator(main_container, orient='horizontal').pack(fill=tk.X, pady=8)
 
-        # Bottom buttons row
-        btns = ttk.Frame(frm)
-        btns.pack(fill=tk.X)
+        # Action buttons row
+        button_frame = ttk.Frame(main_container)
+        button_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # Left side: Clean selected as a green tk.Button
-        clean_btn = tk.Button(btns, text="Clean selected",
+        # Clean button - green tk.Button for better color control
+        clean_btn = tk.Button(button_frame, text="🧹 Clean Selected",
                               command=self.on_clean_clicked,
-                              bg="#3cb371", activebackground="#2e8b57",
-                              fg="black", activeforeground="black")
-        clean_btn.pack(side=tk.LEFT)
+                              bg="#2ecc71", activebackground="#27ae60",
+                              fg="white", activeforeground="white",
+                              font=('Segoe UI', 10, 'bold'),
+                              padx=12, pady=5,
+                              relief=tk.FLAT, bd=0)
+        clean_btn.pack(side=tk.LEFT, padx=(0, 10))
 
-        # Right side: a container for Preview and Refresh
-        right_box = ttk.Frame(btns)
-        right_box.pack(side=tk.RIGHT)
+        # Refresh and Preview as modern ttk buttons
+        refresh_btn = ttk.Button(button_frame, text="⟳ Refresh Sizes", command=self.refresh_sizes)
+        refresh_btn.pack(side=tk.LEFT, padx=(0, 5))
 
-        refresh_btn = ttk.Button(right_box, text="Refresh sizes", command=self.refresh_sizes)
-        refresh_btn.pack(side=tk.LEFT)
+        preview_btn = ttk.Button(button_frame, text="👁 Preview Commands", command=self.on_preview)
+        preview_btn.pack(side=tk.LEFT)
 
-        preview_btn = ttk.Button(right_box, text="Preview commands", command=self.on_preview)
-        preview_btn.pack(side=tk.LEFT, padx=(8, 0))
+        # Log area with label and frame
+        log_label = ttk.Label(main_container, text="📋 Activity Log", font=('Segoe UI', 10, 'bold'))
+        log_label.pack(anchor="w", pady=(5, 3))
+        
+        # ScrolledText with modern look
+        self.log = ScrolledText(main_container, height=14, wrap=tk.WORD,
+                                font=('Consolas', 9), bg='#f8f9fa', fg='#2c3e50',
+                                relief=tk.FLAT, bd=1, highlightthickness=0)
+        self.log.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
 
-        ttk.Label(frm, text="Log output").pack(anchor="w", pady=(8, 0))
-        self.log = ScrolledText(frm, height=16, wrap=tk.WORD, font=("Monospace", 10))
-        self.log.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
-        log_append(self.log, "Ready.")
+        # Initial log message
+        log_append(self.log, "Ready. Select items and press 'Clean Selected'.")
 
     def on_select_all_toggle(self) -> None:
         """
@@ -519,6 +609,10 @@ class MintCleanerApp(tk.Tk):
         self.var_flatpak_repair_system.set(state)
         self.var_apt.set(state)
         self.var_journal.set(state)
+        # New options
+        self.var_flatpak_app_cache.set(state)
+        self.var_apt_cache.set(state)
+        self.var_old_kernels.set(state)
 
     def _apply_autoselect_by_threshold(self, sizes_now: Dict[str, int]) -> None:
         """
@@ -539,6 +633,8 @@ class MintCleanerApp(tk.Tk):
             "flatpak_syscache": self.var_flatpak_syscache,
             "apt": self.var_apt,
             "journal": self.var_journal,
+            "flatpak_app_cache": self.var_flatpak_app_cache,
+            "apt_cache": self.var_apt_cache,   # Now measurable via root
         }
 
         for key, size in sizes_now.items():
@@ -561,6 +657,8 @@ class MintCleanerApp(tk.Tk):
             "flatpak_syscache": self.var_flatpak_syscache,
             "apt": self.var_apt,
             "journal": self.var_journal,
+            "flatpak_app_cache": self.var_flatpak_app_cache,
+            "apt_cache": self.var_apt_cache,
         }
         for key, var in key_to_var_measurable.items():
             size = sizes_now.get(key, None)
@@ -571,22 +669,33 @@ class MintCleanerApp(tk.Tk):
         self.var_flatpak_user.set(False)
         self.var_flatpak_repair_user.set(False)
         self.var_flatpak_repair_system.set(False)
+        self.var_old_kernels.set(False)
 
     # ----------------------------- Size analysis -----------------------------
 
     def refresh_sizes(self) -> None:
         """
-        Recalculate sizes for all measurable categories, auto select those exceeding
-        the configured threshold, auto deselect 0 MB or unknown, and update labels.
+        Recalculate sizes for all measurable categories.
+        For root‑owned paths (apt_cache) we ask the helper.
         """
+        # Standard measurable keys (user accessible)
         measurable = [
             "tmp", "user_cache", "thumbnails", "trash",
-            "firefox", "chrome", "flatpak_syscache", "apt", "journal"
+            "firefox", "chrome", "flatpak_syscache", "apt", "journal",
+            "flatpak_app_cache"
         ]
         sizes_now: Dict[str, int] = {}
         for key in measurable:
             patterns = self.patterns.get(key, [])
             sizes_now[key] = size_of_patterns(patterns)
+
+        # Special root path: APT package cache
+        apt_cache_patterns = ["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"]
+        try:
+            apt_size = HELPER.get_size_of_patterns(apt_cache_patterns)
+            sizes_now["apt_cache"] = apt_size
+        except Exception:
+            sizes_now["apt_cache"] = 0
 
         # Auto select by threshold
         self._apply_autoselect_by_threshold(sizes_now)
@@ -594,16 +703,22 @@ class MintCleanerApp(tk.Tk):
         # Auto deselect 0 MB or unknown
         self._apply_autodeselect_zero_or_unknown(sizes_now)
 
-        # Update checkbox texts
+        # Update checkbox texts for measurable items
         for key, size in sizes_now.items():
             if key in self.widgets and key in self.base_text:
                 try:
-                    self.widgets[key].configure(text=f"{self.base_text[key]}  [{human_mb(size)}]")
+                    if size == 0:
+                        text = f"{self.base_text[key]}  [0 MB]"
+                    else:
+                        text = f"{self.base_text[key]}  [{human_mb(size)}]"
+                    self.widgets[key].configure(text=text)
                 except tk.TclError:
                     pass
 
-        # Keep non measurable labels as is
-        for key in ["flatpak_user_unused", "flatpak_repair_user", "flatpak_repair_system"]:
+        # Keep non measurable labels as is (they already have "[size unknown]")
+        non_measurable = ["flatpak_user_unused", "flatpak_repair_user", "flatpak_repair_system",
+                          "old_kernels"]
+        for key in non_measurable:
             if key in self.widgets and key in self.base_text:
                 try:
                     self.widgets[key].configure(text=self.base_text[key])
@@ -611,7 +726,7 @@ class MintCleanerApp(tk.Tk):
                     pass
 
         self.sizes_before = sizes_now
-        log_append(self.log, "Sizes refreshed.")
+        log_append(self.log, "Sizes refreshed (APT cache size obtained via helper).")
 
     # ----------------------------- Plan and execution -----------------------------
 
@@ -619,7 +734,7 @@ class MintCleanerApp(tk.Tk):
         """
         Build a plan from selected checkboxes for user deletions, user commands and root actions.
 
-        :return: Dict with user_python_deletes, user_cmds, root_rm_patterns and root_cmds.
+        :return: Dict with user_py_deletes, user_cmds, root_rm_patterns and root_cmds.
         """
         plan = {"user_py_delete": [], "user_cmds": [], "root_rm_patterns": [], "root_cmds": []}
 
@@ -642,6 +757,9 @@ class MintCleanerApp(tk.Tk):
                 "~/.config/chromium/Default/Cache/*",
                 "~/.cache/chromium/Default/Cache/*",
             ]
+        # Flatpak app cache
+        if self.var_flatpak_app_cache.get():
+            plan["user_py_delete"].append("~/.var/app/*/cache/*")
 
         # User commands
         if self.var_flatpak_user.get():
@@ -660,6 +778,8 @@ class MintCleanerApp(tk.Tk):
             plan["root_rm_patterns"] += ["/tmp/*", "/var/tmp/*"]
         if self.var_flatpak_syscache.get():
             plan["root_rm_patterns"] += ["/var/tmp/flatpak-cache/*"]
+        if self.var_apt_cache.get():
+            plan["root_rm_patterns"] += ["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"]
 
         # Root commands
         if self.var_flatpak_repair_system.get():
@@ -669,6 +789,8 @@ class MintCleanerApp(tk.Tk):
         if self.var_journal.get():
             retention = self.journal_retention.get().strip() or "3d"
             plan["root_cmds"].append(f"journalctl --vacuum-time={shlex.quote(retention)}")
+        if self.var_old_kernels.get():
+            plan["root_cmds"].append("apt autoremove --purge -y")
 
         return plan
 
@@ -712,8 +834,16 @@ class MintCleanerApp(tk.Tk):
         if self.var_flatpak_syscache.get(): selected_keys.append("flatpak_syscache")
         if self.var_apt.get(): selected_keys.append("apt")
         if self.var_journal.get(): selected_keys.append("journal")
+        if self.var_flatpak_app_cache.get(): selected_keys.append("flatpak_app_cache")
+        if self.var_apt_cache.get(): selected_keys.append("apt_cache")
 
-        sizes_before_local = {k: size_of_patterns(self.patterns.get(k, [])) for k in selected_keys}
+        sizes_before_local = {}
+        for k in selected_keys:
+            if k == "apt_cache":
+                # size already obtained via helper, we store it from self.sizes_before
+                sizes_before_local[k] = self.sizes_before.get(k, 0)
+            else:
+                sizes_before_local[k] = size_of_patterns(self.patterns.get(k, []))
 
         plan = self.build_plan()
         if not (plan["user_py_delete"] or plan["user_cmds"] or plan["root_rm_patterns"] or plan["root_cmds"]):
@@ -774,7 +904,10 @@ class MintCleanerApp(tk.Tk):
         log_append(self.log, "Recalculating sizes after cleanup ...")
         reclaimed_total = 0
         for key in selected_keys:
-            after = size_of_patterns(self.patterns.get(key, []))
+            if key == "apt_cache":
+                after = HELPER.get_size_of_patterns(["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"])
+            else:
+                after = size_of_patterns(self.patterns.get(key, []))
             before = sizes_before_local.get(key, 0)
             reclaimed = max(0, before - after)
             reclaimed_total += reclaimed
@@ -791,6 +924,7 @@ def helper_main() -> None:
     - ping
     - rm_rf_patterns
     - run_root_cmds
+    - get_size (compute total size of root patterns)
     """
     def send_ok(data: Any = True) -> None:
         print(json.dumps({"status": "ok", "data": data}), flush=True)
@@ -805,6 +939,35 @@ def helper_main() -> None:
                 out.append(p)
         return out
 
+    def _size_of_path(p: str) -> int:
+        """Compute size of a single file/directory (no glob)."""
+        if not os.path.exists(p):
+            return 0
+        if os.path.isdir(p) and not os.path.islink(p):
+            total = 0
+            for root, _, files in os.walk(p, onerror=lambda e: None):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        if not os.path.islink(fp):
+                            total += os.path.getsize(fp)
+                    except Exception:
+                        pass
+            return total
+        if os.path.isfile(p) and not os.path.islink(p):
+            try:
+                return os.path.getsize(p)
+            except Exception:
+                return 0
+        return 0
+
+    def _size_of_patterns(patterns: List[str]) -> int:
+        total = 0
+        for pat in patterns:
+            for p in glob.glob(pat, recursive=False):
+                total += _size_of_path(p)
+        return total
+
     while True:
         line = sys.stdin.readline()
         if not line:
@@ -816,6 +979,11 @@ def helper_main() -> None:
 
             if action == "ping":
                 send_ok(True)
+
+            elif action == "get_size":
+                patterns: List[str] = args.get("patterns") or []
+                size = _size_of_patterns(patterns)
+                send_ok(size)
 
             elif action == "rm_rf_patterns":
                 pats: List[str] = args.get("patterns") or []
