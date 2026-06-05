@@ -371,9 +371,8 @@ class MintCleanerApp(tk.Tk):
 
         self._build_ui()
 
-        # Do NOT start the helper here. It is already started before the window exists.
-        # Just log a friendly status.
-        log_append(self.log, "[OK] Privileged helper ready, authentication done.")
+        # Log that helper is ready and authenticated (already done by main())
+        log_append(self.log, "[OK] Privileged helper ready, authentication done at startup.")
         self.refresh_sizes()
 
     def _build_ui(self) -> None:
@@ -413,7 +412,8 @@ class MintCleanerApp(tk.Tk):
         ttk.Separator(frm).pack(fill=tk.X, pady=8)
 
         ttk.Label(frm, text="System tasks, require root", font=("Sans", 12, "bold")).pack(anchor="w")
-        sys_frame = ttk.Frame(frm); sys_frame.pack(fill=tk.X, padx=(12, 0))
+        sys_frame = ttk.Frame(frm)
+        sys_frame.pack(fill=tk.X, padx=(12, 0))
 
         self.widgets["tmp"] = ttk.Checkbutton(sys_frame, text="/tmp and /var/tmp", variable=self.var_tmp)
         self.widgets["tmp"].grid(row=0, column=0, sticky="w", pady=2)
@@ -431,7 +431,8 @@ class MintCleanerApp(tk.Tk):
         self.widgets["flatpak_repair_system"].grid(row=3, column=0, sticky="w", pady=2)
         self.base_text["flatpak_repair_system"] = "Flatpak repair system [size unknown]"
 
-        jfrm = ttk.Frame(sys_frame); jfrm.grid(row=4, column=0, sticky="w", pady=2)
+        jfrm = ttk.Frame(sys_frame)
+        jfrm.grid(row=4, column=0, sticky="w", pady=2)
         self.widgets["journal"] = ttk.Checkbutton(jfrm, text="Systemd journal vacuum", variable=self.var_journal)
         self.widgets["journal"].pack(side=tk.LEFT)
         self.base_text["journal"] = "Systemd journal vacuum"
@@ -442,7 +443,8 @@ class MintCleanerApp(tk.Tk):
         ttk.Separator(frm).pack(fill=tk.X, pady=8)
 
         ttk.Label(frm, text=f"User caches, running as {self.username}", font=("Sans", 12, "bold")).pack(anchor="w")
-        user_frame = ttk.Frame(frm); user_frame.pack(fill=tk.X, padx=(12, 0))
+        user_frame = ttk.Frame(frm)
+        user_frame.pack(fill=tk.X, padx=(12, 0))
 
         self.widgets["user_cache"] = ttk.Checkbutton(user_frame, text="~/.cache/*", variable=self.var_user_cache)
         self.widgets["user_cache"].grid(row=0, column=0, sticky="w", pady=2)
