@@ -51,6 +51,6 @@ User tasks (run as your user)
 
 ```bash
 cd MintCleaner
-git clone https://github.com/joruf/MintCleaner.git
+git clone https://github.com/joruf/mint-cleaner.git
 chmod +x mint-cleaner.py
 ./mint-cleaner.py
