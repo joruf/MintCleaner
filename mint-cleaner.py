@@ -27,6 +27,9 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
+
+from desktop_setup import maybe_prompt_desktop_setup
+from nemo_setup import maybe_prompt_nemo_setup
 from typing import Tuple, List, Dict, Any, Optional
 from datetime import datetime
 from urllib.parse import quote
@@ -1045,4 +1048,8 @@ if __name__ == "__main__":
     if "--helper" in sys.argv:
         helper_main()
     else:
+        _root = tk.Tk()
+        _root.withdraw()
+        maybe_prompt_nemo_setup(_root)
+        maybe_prompt_desktop_setup(_root)
         main()
