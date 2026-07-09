@@ -16,8 +16,13 @@ Uses a single `pkexec` authentication at startup – no repeated password prompt
 ## Requirements
 
 - Linux with `pkexec` (part of `policykit-1`)
-- Python 3.6+ with `tkinter` (usually pre‑installed)
+- Python 3.6+ with `tkinter` (`python3-tk` on Debian/Ubuntu/Mint)
 - Tested on Linux Mint, but works on Ubuntu, Debian, and similar distributions.
+
+On first start, Mint Cleaner checks required dependencies and offers to install
+missing packages automatically via `apt` (using `pkexec` or `sudo`). Optional
+components such as `gio` (Trash integration) and `flatpak` are installed only
+when you agree to the prompt.
 
 ## What gets deleted?
 System tasks (require root privileges)
