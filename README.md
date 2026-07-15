@@ -30,6 +30,14 @@ System tasks (require root privileges)
 - APT cleanup – runs apt clean, apt autoclean, apt autoremove
 (removes downloaded .deb packages, obsolete dependencies)
 - APT package cache – /var/cache/apt/archives/* (all cached .deb files)
+- General system caches:
+  - /var/cache/fontconfig/* and /var/cache/man/*
+  - /var/lib/apt/lists/* (recreated on apt update)
+  - /var/lib/snapd/cache/* and /var/cache/snapd/*
+  - /var/crash/* (old crash dumps)
+- Additional system caches:
+  - /var/cache/PackageKit/*, /var/cache/fwupd/*, /var/cache/ldconfig/*
+  - /var/lib/systemd/coredump/* (old coredumps)
 - Remove old kernels – apt autoremove --purge
 (uninstalls older Linux kernels and headers, keeps the current one)
 - System Flatpak cache – /var/tmp/flatpak-cache/*
@@ -47,6 +55,16 @@ User tasks (run as your user)
 - Chrome / Chromium cache – default profile:
 ~/.config/google-chrome/Default/Cache/*, ~/.cache/google-chrome/Default/Cache/*,
 ~/.config/chromium/Default/Cache/*, ~/.cache/chromium/Default/Cache/*
+- Additional app caches in ~/.config (safe cache-only paths):
+  - VS Code / Cursor: Cache, CachedData, Code Cache, GPUCache, Service Worker CacheStorage
+  - Google Chrome / Brave: Code Cache, GPUCache, ShaderCache, Service Worker CacheStorage
+- Developer tool caches:
+  - ~/.npm/_cacache/*, ~/.yarn/cache/*, ~/.yarn/berry/cache/*
+  - ~/.pnpm-store/*, ~/.cargo/registry/cache/*, ~/.gradle/caches/*
+- Language and package tool caches:
+  - ~/.cache/pip/*, ~/.cache/pypoetry/*, ~/.cache/uv/*
+  - ~/.cache/go-build/*, ~/.cache/node-gyp/*
+  - ~/.cache/fontconfig/*, ~/.cache/mesa_shader_cache/*
 - Flatpak user: uninstall unused – flatpak uninstall --unused -y
 (removes unused Flatpak runtimes and extensions)
 - Flatpak repair user – flatpak repair --user -y

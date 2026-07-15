@@ -44,6 +44,70 @@ from urllib.parse import quote
 
 AUTOCHECK_THRESHOLD_MB = 100  # Auto select items larger than this many MB; set 0 to disable
 
+# Conservative cache-only directories in ~/.config.
+# These paths contain temporary browser/Electron caches and can be recreated.
+CONFIG_CACHE_PATTERNS: List[str] = [
+    "~/.config/Code/Cache/*",
+    "~/.config/Code/CachedData/*",
+    "~/.config/Code/Code Cache/*",
+    "~/.config/Code/GPUCache/*",
+    "~/.config/Code/Service Worker/CacheStorage/*",
+    "~/.config/Cursor/Cache/*",
+    "~/.config/Cursor/CachedData/*",
+    "~/.config/Cursor/Code Cache/*",
+    "~/.config/Cursor/GPUCache/*",
+    "~/.config/Cursor/Service Worker/CacheStorage/*",
+    "~/.config/google-chrome/Default/Code Cache/*",
+    "~/.config/google-chrome/Default/GPUCache/*",
+    "~/.config/google-chrome/Default/Service Worker/CacheStorage/*",
+    "~/.config/google-chrome/ShaderCache/*",
+    "~/.config/BraveSoftware/Brave-Browser/Default/Code Cache/*",
+    "~/.config/BraveSoftware/Brave-Browser/Default/GPUCache/*",
+    "~/.config/BraveSoftware/Brave-Browser/Default/Service Worker/CacheStorage/*",
+    "~/.config/BraveSoftware/Brave-Browser/ShaderCache/*",
+]
+
+# Common Linux user-space package/build caches outside ~/.cache.
+# All entries are regenerated on demand by the related tools.
+DEV_TOOL_CACHE_PATTERNS: List[str] = [
+    "~/.npm/_cacache/*",
+    "~/.yarn/cache/*",
+    "~/.yarn/berry/cache/*",
+    "~/.pnpm-store/*",
+    "~/.cargo/registry/cache/*",
+    "~/.gradle/caches/*",
+]
+
+# Additional language and package manager caches in user space.
+USER_LANG_TOOL_CACHE_PATTERNS: List[str] = [
+    "~/.cache/pip/*",
+    "~/.cache/pypoetry/*",
+    "~/.cache/uv/*",
+    "~/.cache/go-build/*",
+    "~/.cache/node-gyp/*",
+    "~/.cache/fontconfig/*",
+    "~/.cache/mesa_shader_cache/*",
+]
+
+# Common Ubuntu/Linux system cache and transient data locations.
+# These paths are safe to recreate and do not include user configuration.
+SYSTEM_MISC_CACHE_PATTERNS: List[str] = [
+    "/var/cache/fontconfig/*",
+    "/var/cache/man/*",
+    "/var/lib/apt/lists/*",
+    "/var/lib/snapd/cache/*",
+    "/var/cache/snapd/*",
+    "/var/crash/*",
+]
+
+# Additional system-wide caches commonly found on Ubuntu and Linux Mint.
+SYSTEM_EXTRA_CACHE_PATTERNS: List[str] = [
+    "/var/cache/PackageKit/*",
+    "/var/cache/fwupd/*",
+    "/var/cache/ldconfig/*",
+    "/var/lib/systemd/coredump/*",
+]
+
 # ----------------------------- Utilities (unprivileged) -----------------------------
 
 def human_mb(n_bytes: int) -> str:
@@ -52,6 +116,14 @@ def human_mb(n_bytes: int) -> str:
     """
     mb = n_bytes / (1024 * 1024)
     return f"{mb:.1f} MB"
+
+
+def human_gb(n_bytes: int) -> str:
+    """
+    Convert bytes to a human friendly GB string with two decimals.
+    """
+    gb = n_bytes / (1024 * 1024 * 1024)
+    return f"{gb:.2f} GB"
 
 
 def size_of_path(path: str) -> int:
@@ -341,8 +413,8 @@ class MintCleanerApp(tk.Tk):
         """
         super().__init__()
         self.title("Mint Cleaner, Selective Temp and Cache Cleanup")
-        self.geometry("950x920")
-        self.minsize(900, 850)
+        self.geometry("1180x860")
+        self.minsize(1080, 760)
 
         # Configure modern style
         self._setup_styles()
@@ -350,28 +422,32 @@ class MintCleanerApp(tk.Tk):
         self.username = getpass.getuser()
 
         # Deletion mode for user scoped actions
-        self.delete_mode_var = tk.StringVar(value="trash")  # "trash" or "delete"
+        self.delete_mode_var = tk.StringVar(master=self, value="trash")  # "trash" or "delete"
 
         # Checkboxes state
-        self.var_tmp = tk.BooleanVar(value=False)                 # /tmp and /var/tmp
-        self.var_user_cache = tk.BooleanVar(value=True)           # ~/.cache/*
-        self.var_thumbnails = tk.BooleanVar(value=True)           # ~/.thumbnails/*
-        self.var_trash = tk.BooleanVar(value=True)                # ~/.local/share/Trash/*
-        self.var_firefox = tk.BooleanVar(value=False)             # Firefox caches
-        self.var_chrome = tk.BooleanVar(value=False)              # Chrome or Chromium caches
-        self.var_flatpak_user = tk.BooleanVar(value=False)        # flatpak uninstall --unused (user)
-        self.var_flatpak_repair_user = tk.BooleanVar(value=False) # flatpak repair --user
-        self.var_flatpak_syscache = tk.BooleanVar(value=False)    # /var/tmp/flatpak-cache/*
-        self.var_flatpak_repair_system = tk.BooleanVar(value=False) # flatpak repair --system
-        self.var_apt = tk.BooleanVar(value=False)                 # apt clean/autoclean/autoremove
-        self.var_journal = tk.BooleanVar(value=False)             # journalctl vacuum
+        self.var_tmp = tk.BooleanVar(master=self, value=False)                 # /tmp and /var/tmp
+        self.var_user_cache = tk.BooleanVar(master=self, value=True)           # ~/.cache/*
+        self.var_thumbnails = tk.BooleanVar(master=self, value=True)           # ~/.thumbnails/*
+        self.var_trash = tk.BooleanVar(master=self, value=True)                # ~/.local/share/Trash/*
+        self.var_firefox = tk.BooleanVar(master=self, value=False)             # Firefox caches
+        self.var_chrome = tk.BooleanVar(master=self, value=False)              # Chrome or Chromium caches
+        self.var_flatpak_user = tk.BooleanVar(master=self, value=False)        # flatpak uninstall --unused (user)
+        self.var_flatpak_repair_user = tk.BooleanVar(master=self, value=False) # flatpak repair --user
+        self.var_flatpak_syscache = tk.BooleanVar(master=self, value=False)    # /var/tmp/flatpak-cache/*
+        self.var_flatpak_repair_system = tk.BooleanVar(master=self, value=False) # flatpak repair --system
+        self.var_apt = tk.BooleanVar(master=self, value=False)                 # apt clean/autoclean/autoremove
+        self.var_journal = tk.BooleanVar(master=self, value=False)             # journalctl vacuum
         # New options
-        self.var_flatpak_app_cache = tk.BooleanVar(value=False)   # ~/.var/app/*/cache/*
-        self.var_apt_cache = tk.BooleanVar(value=False)           # /var/cache/apt/archives/*
-        self.var_old_kernels = tk.BooleanVar(value=False)         # apt autoremove --purge
+        self.var_flatpak_app_cache = tk.BooleanVar(master=self, value=False)   # ~/.var/app/*/cache/*
+        self.var_config_app_caches = tk.BooleanVar(master=self, value=False)   # Conservative ~/.config cache-only paths
+        self.var_dev_tool_caches = tk.BooleanVar(master=self, value=False)     # npm/yarn/pnpm/cargo/gradle caches
+        self.var_user_lang_tool_caches = tk.BooleanVar(master=self, value=False)  # pip/poetry/uv/go/fontconfig/mesa caches
+        self.var_apt_cache = tk.BooleanVar(master=self, value=False)           # /var/cache/apt/archives/*
+        self.var_system_misc_caches = tk.BooleanVar(master=self, value=False)  # Common /var cache and crash directories
+        self.var_system_extra_caches = tk.BooleanVar(master=self, value=False) # PackageKit/fwupd/ldconfig/coredump caches
+        self.var_old_kernels = tk.BooleanVar(master=self, value=False)         # apt autoremove --purge
 
-        self.journal_retention = tk.StringVar(value="3d")
-        self.var_select_all = tk.BooleanVar(value=False)
+        self.journal_retention = tk.StringVar(master=self, value="3d")
 
         # Patterns for size analysis (user measurable only)
         self.patterns: Dict[str, List[str]] = {
@@ -393,12 +469,19 @@ class MintCleanerApp(tk.Tk):
             "apt": ["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"],
             "journal": ["/var/log/journal/*", "/run/log/journal/*"],
             "flatpak_app_cache": ["~/.var/app/*/cache/*"],
+            "config_app_caches": CONFIG_CACHE_PATTERNS,
+            "dev_tool_caches": DEV_TOOL_CACHE_PATTERNS,
+            "user_lang_tool_caches": USER_LANG_TOOL_CACHE_PATTERNS,
+            "system_misc_caches": SYSTEM_MISC_CACHE_PATTERNS,
+            "system_extra_caches": SYSTEM_EXTRA_CACHE_PATTERNS,
+            "apt_cache": ["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"],
         }
 
         # Bookkeeping
         self.sizes_before: Dict[str, int] = {}
-        self.widgets: Dict[str, ttk.Checkbutton] = {}
+        self.widgets: Dict[str, tk.Checkbutton] = {}
         self.base_text: Dict[str, str] = {}
+        self.success_clear_after_id: Optional[str] = None
 
         self._build_ui()
 
@@ -408,220 +491,317 @@ class MintCleanerApp(tk.Tk):
 
     def _setup_styles(self) -> None:
         """
-        Configure ttk styles for a modern, clean look.
+        Configure ttk styles for a cleaner, more user-friendly layout.
         """
         style = ttk.Style()
-        # Try to use 'clam' theme for a more modern appearance (available on most Linux)
         available_themes = style.theme_names()
-        if 'clam' in available_themes:
-            style.theme_use('clam')
-        elif 'vista' in available_themes:
-            style.theme_use('vista')
-        elif 'alt' in available_themes:
-            style.theme_use('alt')
-        
-        # Configure colors and fonts
-        style.configure('TLabel', font=('Segoe UI', 10))
-        style.configure('TLabelframe', font=('Segoe UI', 10, 'bold'))
-        style.configure('TLabelframe.Label', font=('Segoe UI', 10, 'bold'))
-        style.configure('TButton', font=('Segoe UI', 9))
-        style.configure('TCheckbutton', font=('Segoe UI', 9))
-        style.configure('TEntry', font=('Segoe UI', 9))
-        
-        # Custom style for the main header
-        style.configure('Header.TLabel', font=('Segoe UI', 16, 'bold'))
+        if "clam" in available_themes:
+            style.theme_use("clam")
+        elif "vista" in available_themes:
+            style.theme_use("vista")
+        elif "alt" in available_themes:
+            style.theme_use("alt")
+
+        style.configure("TLabel", font=("Segoe UI", 10))
+        style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"))
+        style.configure("Subtitle.TLabel", font=("Segoe UI", 10))
+        style.configure("CardTitle.TLabel", font=("Segoe UI", 11, "bold"))
+        style.configure("Hint.TLabel", font=("Segoe UI", 9))
+        style.configure("TLabelframe", font=("Segoe UI", 10, "bold"))
+        style.configure("TLabelframe.Label", font=("Segoe UI", 10, "bold"))
+        style.configure("TButton", font=("Segoe UI", 9), padding=(10, 6))
+        style.configure("TCheckbutton", font=("Segoe UI", 9))
+        # Slightly larger checkboxes with a clearer indicator.
+        style.configure(
+            "Big.TCheckbutton",
+            font=("Segoe UI", 10),
+            padding=(2, 4),
+            indicatorsize=18,
+            indicatormargin=(2, 2, 6, 2),
+        )
+        style.configure("TEntry", font=("Segoe UI", 9))
+        style.configure("TNotebook.Tab", padding=(10, 6), font=("Segoe UI", 9))
+        style.map(
+            "TNotebook.Tab",
+            padding=[("selected", (14, 10)), ("!selected", (10, 6))],
+            font=[("selected", ("Segoe UI", 10, "bold")), ("!selected", ("Segoe UI", 9))],
+        )
+        style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), padding=(14, 8))
 
     def _build_ui(self) -> None:
         """
-        Build the complete UI layout with modern structure and new options.
+        Build a redesigned, user-friendly interface with clear grouping and flow.
         """
-        # Main container with padding
-        main_container = ttk.Frame(self, padding=15)
+        main_container = ttk.Frame(self, padding=14)
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # Header
-        header = ttk.Label(main_container, text="🧹 Mint Cleaner", style='Header.TLabel')
-        header.pack(anchor="w", pady=(0, 5))
-        subtitle = ttk.Label(main_container, text="Selective cleanup of temporary files and caches")
-        subtitle.pack(anchor="w", pady=(0, 15))
+        header_frame = ttk.Frame(main_container, padding=(2, 2, 2, 10))
+        header_frame.pack(fill=tk.X)
 
-        # Top controls row: Select all and deletion mode
-        top_frame = ttk.Frame(main_container)
-        top_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        ttk.Checkbutton(top_frame, text="✓ Select all", variable=self.var_select_all, 
-                       command=self.on_select_all_toggle).pack(side=tk.LEFT)
-        
-        # Deletion mode with clear label
-        mode_frame = ttk.Frame(top_frame)
+        ttk.Label(header_frame, text="Mint Cleaner", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            header_frame,
+            text="Clean temporary files and caches safely with one-click actions.",
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", pady=(2, 0))
+
+        self.summary_var = tk.StringVar(value="No data loaded yet.")
+        ttk.Label(header_frame, textvariable=self.summary_var, style="Hint.TLabel").pack(anchor="w", pady=(6, 0))
+
+        action_bar = ttk.Frame(main_container, padding=(0, 0, 0, 8))
+        action_bar.pack(fill=tk.X)
+
+        mode_frame = ttk.Frame(action_bar)
         mode_frame.pack(side=tk.RIGHT)
         ttk.Label(mode_frame, text="User deletion mode:").pack(side=tk.LEFT, padx=(0, 6))
-        mode_combo = ttk.Combobox(mode_frame, state="readonly",
-                                 values=["Move to Trash", "Delete immediately"],
-                                 width=18)
+        mode_combo = ttk.Combobox(
+            mode_frame,
+            state="readonly",
+            values=["Move to Trash", "Delete immediately"],
+            width=18,
+        )
         mode_combo.pack(side=tk.LEFT)
         mode_combo.set("Move to Trash")
-        
+
         def on_mode_change(event=None):
             val = mode_combo.get()
             self.delete_mode_var.set("trash" if val == "Move to Trash" else "delete")
+
         mode_combo.bind("<<ComboboxSelected>>", on_mode_change)
 
-        # Separator
-        ttk.Separator(main_container, orient='horizontal').pack(fill=tk.X, pady=8)
+        content = ttk.Panedwindow(main_container, orient=tk.HORIZONTAL)
+        content.pack(fill=tk.BOTH, expand=True)
 
-        # System tasks group (using LabelFrame)
-        sys_frame = ttk.LabelFrame(main_container, text="⚙️ System Tasks (require root privileges)", padding=10)
-        sys_frame.pack(fill=tk.X, pady=(0, 15))
+        left_panel = ttk.Frame(content, padding=(0, 4, 8, 0))
+        right_panel = ttk.Frame(content, padding=(8, 4, 0, 0))
+        content.add(left_panel, weight=3)
+        content.add(right_panel, weight=2)
 
-        # Use grid for system tasks
+        task_card = ttk.LabelFrame(left_panel, text="Cleanup Categories", padding=10)
+        task_card.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            task_card,
+            text="Choose what should be cleaned. Sizes update automatically.",
+            style="Hint.TLabel",
+        ).pack(anchor="w", pady=(0, 8))
+
+        self.success_var = tk.StringVar(master=self, value="")
+        self.success_label = ttk.Label(
+            task_card,
+            textvariable=self.success_var,
+            style="CardTitle.TLabel",
+            foreground="#1e7f3b",
+            wraplength=700,
+            justify=tk.LEFT,
+        )
+        self.success_label.pack(anchor="w", pady=(0, 10))
+
+        notebook = ttk.Notebook(task_card)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        sys_tab = ttk.Frame(notebook, padding=8)
+        user_tab = ttk.Frame(notebook, padding=8)
+        notebook.add(sys_tab, text="System (root)")
+        notebook.add(user_tab, text=f"User ({self.username})")
+
+        checkbox_opts = {
+            "font": ("Segoe UI", 10),
+            "indicatoron": True,
+            "anchor": "w",
+            "padx": 4,
+            "pady": 2,
+            "command": self.on_category_toggle,
+        }
+
         row = 0
-        self.widgets["tmp"] = ttk.Checkbutton(sys_frame, text="/tmp and /var/tmp", variable=self.var_tmp)
-        self.widgets["tmp"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["tmp"] = tk.Checkbutton(sys_tab, text="/tmp and /var/tmp", variable=self.var_tmp, **checkbox_opts)
+        self.widgets["tmp"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["tmp"] = "/tmp and /var/tmp"
         row += 1
 
-        self.widgets["apt"] = ttk.Checkbutton(sys_frame, text="APT cleanup (clean, autoclean, autoremove)", variable=self.var_apt)
-        self.widgets["apt"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["apt"] = tk.Checkbutton(sys_tab, text="APT cleanup (clean, autoclean, autoremove)", variable=self.var_apt, **checkbox_opts)
+        self.widgets["apt"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["apt"] = "APT cleanup (clean, autoclean, autoremove)"
         row += 1
 
-        # APT package cache (now with size calculation via root helper)
-        self.widgets["apt_cache"] = ttk.Checkbutton(sys_frame, text="APT package cache (/var/cache/apt/archives)", variable=self.var_apt_cache)
-        self.widgets["apt_cache"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["apt_cache"] = tk.Checkbutton(sys_tab, text="APT package cache (/var/cache/apt/archives)", variable=self.var_apt_cache, **checkbox_opts)
+        self.widgets["apt_cache"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["apt_cache"] = "APT package cache (/var/cache/apt/archives)"
         row += 1
 
-        # Remove old kernels
-        self.widgets["old_kernels"] = ttk.Checkbutton(sys_frame, text="Remove old kernels (apt autoremove --purge) [size unknown]", variable=self.var_old_kernels)
-        self.widgets["old_kernels"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["system_misc_caches"] = tk.Checkbutton(
+            sys_tab,
+            text="General system caches (/var/cache, /var/lib/apt/lists, /var/crash)",
+            variable=self.var_system_misc_caches,
+            **checkbox_opts,
+        )
+        self.widgets["system_misc_caches"].grid(row=row, column=0, sticky="w", pady=4)
+        self.base_text["system_misc_caches"] = "General system caches (/var/cache, /var/lib/apt/lists, /var/crash)"
+        row += 1
+
+        self.widgets["system_extra_caches"] = tk.Checkbutton(
+            sys_tab,
+            text="Additional system caches (PackageKit, fwupd, ldconfig, coredumps)",
+            variable=self.var_system_extra_caches,
+            **checkbox_opts,
+        )
+        self.widgets["system_extra_caches"].grid(row=row, column=0, sticky="w", pady=4)
+        self.base_text["system_extra_caches"] = "Additional system caches (PackageKit, fwupd, ldconfig, coredumps)"
+        row += 1
+
+        self.widgets["old_kernels"] = tk.Checkbutton(sys_tab, text="Remove old kernels (apt autoremove --purge) [size unknown]", variable=self.var_old_kernels, **checkbox_opts)
+        self.widgets["old_kernels"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["old_kernels"] = "Remove old kernels (apt autoremove --purge) [size unknown]"
         row += 1
 
-        self.widgets["flatpak_syscache"] = ttk.Checkbutton(sys_frame, text="System Flatpak cache", variable=self.var_flatpak_syscache)
-        self.widgets["flatpak_syscache"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["flatpak_syscache"] = tk.Checkbutton(sys_tab, text="System Flatpak cache", variable=self.var_flatpak_syscache, **checkbox_opts)
+        self.widgets["flatpak_syscache"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["flatpak_syscache"] = "System Flatpak cache"
         row += 1
 
-        self.widgets["flatpak_repair_system"] = ttk.Checkbutton(sys_frame, text="Flatpak repair system [size unknown]", variable=self.var_flatpak_repair_system)
-        self.widgets["flatpak_repair_system"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["flatpak_repair_system"] = tk.Checkbutton(sys_tab, text="Flatpak repair system [size unknown]", variable=self.var_flatpak_repair_system, **checkbox_opts)
+        self.widgets["flatpak_repair_system"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["flatpak_repair_system"] = "Flatpak repair system [size unknown]"
         row += 1
 
-        # Journal row with retention entry
-        journal_frame = ttk.Frame(sys_frame)
-        journal_frame.grid(row=row, column=0, sticky="w", pady=4, padx=5)
-        self.widgets["journal"] = ttk.Checkbutton(journal_frame, text="Systemd journal vacuum", variable=self.var_journal)
+        journal_frame = ttk.Frame(sys_tab)
+        journal_frame.grid(row=row, column=0, sticky="w", pady=4)
+        self.widgets["journal"] = tk.Checkbutton(journal_frame, text="Systemd journal vacuum", variable=self.var_journal, **checkbox_opts)
         self.widgets["journal"].pack(side=tk.LEFT)
         self.base_text["journal"] = "Systemd journal vacuum"
-        ttk.Label(journal_frame, text="Keep:").pack(side=tk.LEFT, padx=(8, 2))
+        ttk.Label(journal_frame, text="Keep:").pack(side=tk.LEFT, padx=(8, 3))
         ttk.Entry(journal_frame, width=8, textvariable=self.journal_retention).pack(side=tk.LEFT)
-        ttk.Label(journal_frame, text="(e.g., 3d, 7d, 100M)").pack(side=tk.LEFT, padx=(6, 0))
-
-        # User tasks group
-        user_frame = ttk.LabelFrame(main_container, text=f"👤 User Caches & Data (running as {self.username})", padding=10)
-        user_frame.pack(fill=tk.X, pady=(0, 15))
+        ttk.Label(journal_frame, text="(3d, 7d, 100M)").pack(side=tk.LEFT, padx=(6, 0))
 
         row = 0
-        self.widgets["user_cache"] = ttk.Checkbutton(user_frame, text="~/.cache/*", variable=self.var_user_cache)
-        self.widgets["user_cache"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["user_cache"] = tk.Checkbutton(user_tab, text="~/.cache/*", variable=self.var_user_cache, **checkbox_opts)
+        self.widgets["user_cache"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["user_cache"] = "~/.cache/*"
         row += 1
 
-        self.widgets["thumbnails"] = ttk.Checkbutton(user_frame, text="~/.thumbnails/*", variable=self.var_thumbnails)
-        self.widgets["thumbnails"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["thumbnails"] = tk.Checkbutton(user_tab, text="~/.thumbnails/*", variable=self.var_thumbnails, **checkbox_opts)
+        self.widgets["thumbnails"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["thumbnails"] = "~/.thumbnails/*"
         row += 1
 
-        self.widgets["trash"] = ttk.Checkbutton(user_frame, text="~/.local/share/Trash/*", variable=self.var_trash)
-        self.widgets["trash"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["trash"] = tk.Checkbutton(user_tab, text="~/.local/share/Trash/*", variable=self.var_trash, **checkbox_opts)
+        self.widgets["trash"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["trash"] = "~/.local/share/Trash/*"
         row += 1
 
-        # Flatpak app cache (measurable)
-        self.widgets["flatpak_app_cache"] = ttk.Checkbutton(user_frame, text="Flatpak application cache (~/.var/app/*/cache/*)", variable=self.var_flatpak_app_cache)
-        self.widgets["flatpak_app_cache"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["flatpak_app_cache"] = tk.Checkbutton(user_tab, text="Flatpak application cache (~/.var/app/*/cache/*)", variable=self.var_flatpak_app_cache, **checkbox_opts)
+        self.widgets["flatpak_app_cache"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["flatpak_app_cache"] = "Flatpak application cache (~/.var/app/*/cache/*)"
         row += 1
 
-        self.widgets["firefox"] = ttk.Checkbutton(user_frame, text="Firefox cache (all profiles)", variable=self.var_firefox)
-        self.widgets["firefox"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["firefox"] = tk.Checkbutton(user_tab, text="Firefox cache (all profiles)", variable=self.var_firefox, **checkbox_opts)
+        self.widgets["firefox"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["firefox"] = "Firefox cache (all profiles)"
         row += 1
 
-        self.widgets["chrome"] = ttk.Checkbutton(user_frame, text="Chrome/Chromium cache (default profile)", variable=self.var_chrome)
-        self.widgets["chrome"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["chrome"] = tk.Checkbutton(user_tab, text="Chrome/Chromium cache (default profile)", variable=self.var_chrome, **checkbox_opts)
+        self.widgets["chrome"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["chrome"] = "Chrome/Chromium cache (default profile)"
         row += 1
 
-        self.widgets["flatpak_user_unused"] = ttk.Checkbutton(user_frame, text="Flatpak user: uninstall unused [size unknown]", variable=self.var_flatpak_user)
-        self.widgets["flatpak_user_unused"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["config_app_caches"] = tk.Checkbutton(
+            user_tab,
+            text="Additional app caches in ~/.config (Code, Cursor, Chrome, Brave)",
+            variable=self.var_config_app_caches,
+            **checkbox_opts,
+        )
+        self.widgets["config_app_caches"].grid(row=row, column=0, sticky="w", pady=4)
+        self.base_text["config_app_caches"] = "Additional app caches in ~/.config (Code, Cursor, Chrome, Brave)"
+        row += 1
+
+        self.widgets["dev_tool_caches"] = tk.Checkbutton(
+            user_tab,
+            text="Developer tool caches (~/.npm, ~/.yarn, ~/.pnpm-store, ~/.cargo, ~/.gradle)",
+            variable=self.var_dev_tool_caches,
+            **checkbox_opts,
+        )
+        self.widgets["dev_tool_caches"].grid(row=row, column=0, sticky="w", pady=4)
+        self.base_text["dev_tool_caches"] = "Developer tool caches (~/.npm, ~/.yarn, ~/.pnpm-store, ~/.cargo, ~/.gradle)"
+        row += 1
+
+        self.widgets["user_lang_tool_caches"] = tk.Checkbutton(
+            user_tab,
+            text="Language and tool caches (pip, Poetry, uv, go-build, node-gyp, fontconfig, mesa)",
+            variable=self.var_user_lang_tool_caches,
+            **checkbox_opts,
+        )
+        self.widgets["user_lang_tool_caches"].grid(row=row, column=0, sticky="w", pady=4)
+        self.base_text["user_lang_tool_caches"] = "Language and tool caches (pip, Poetry, uv, go-build, node-gyp, fontconfig, mesa)"
+        row += 1
+
+        self.widgets["flatpak_user_unused"] = tk.Checkbutton(user_tab, text="Flatpak user: uninstall unused [size unknown]", variable=self.var_flatpak_user, **checkbox_opts)
+        self.widgets["flatpak_user_unused"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["flatpak_user_unused"] = "Flatpak user: uninstall unused [size unknown]"
         row += 1
 
-        self.widgets["flatpak_repair_user"] = ttk.Checkbutton(user_frame, text="Flatpak repair user [size unknown]", variable=self.var_flatpak_repair_user)
-        self.widgets["flatpak_repair_user"].grid(row=row, column=0, sticky="w", pady=4, padx=5)
+        self.widgets["flatpak_repair_user"] = tk.Checkbutton(user_tab, text="Flatpak repair user [size unknown]", variable=self.var_flatpak_repair_user, **checkbox_opts)
+        self.widgets["flatpak_repair_user"].grid(row=row, column=0, sticky="w", pady=4)
         self.base_text["flatpak_repair_user"] = "Flatpak repair user [size unknown]"
-        row += 1
 
-        # Separator
-        ttk.Separator(main_container, orient='horizontal').pack(fill=tk.X, pady=8)
+        right_actions = ttk.LabelFrame(right_panel, text="Actions", padding=10)
+        right_actions.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(right_actions, text="1) Select categories  2) Preview  3) Clean", style="Hint.TLabel").pack(anchor="w", pady=(0, 8))
 
-        # Action buttons row
-        button_frame = ttk.Frame(main_container)
-        button_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Button(right_actions, text="Clean Selected", style="Primary.TButton", command=self.on_clean_clicked).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(right_actions, text="Preview Commands", command=self.on_preview).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(right_actions, text="Refresh Sizes", command=self.refresh_sizes).pack(fill=tk.X)
 
-        # Clean button - green tk.Button for better color control
-        clean_btn = tk.Button(button_frame, text="🧹 Clean Selected",
-                              command=self.on_clean_clicked,
-                              bg="#2ecc71", activebackground="#27ae60",
-                              fg="white", activeforeground="white",
-                              font=('Segoe UI', 10, 'bold'),
-                              padx=12, pady=5,
-                              relief=tk.FLAT, bd=0)
-        clean_btn.pack(side=tk.LEFT, padx=(0, 10))
+        log_card = ttk.LabelFrame(right_panel, text="Activity Log", padding=10)
+        log_card.pack(fill=tk.BOTH, expand=True)
+        self.log = ScrolledText(
+            log_card,
+            height=18,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            bg="#f8f9fa",
+            fg="#2c3e50",
+            relief=tk.FLAT,
+            bd=1,
+            highlightthickness=0,
+        )
+        self.log.pack(fill=tk.BOTH, expand=True)
 
-        # Refresh and Preview as modern ttk buttons
-        refresh_btn = ttk.Button(button_frame, text="⟳ Refresh Sizes", command=self.refresh_sizes)
-        refresh_btn.pack(side=tk.LEFT, padx=(0, 5))
+        log_append(self.log, "Ready. Select categories, preview, then clean.")
 
-        preview_btn = ttk.Button(button_frame, text="👁 Preview Commands", command=self.on_preview)
-        preview_btn.pack(side=tk.LEFT)
-
-        # Log area with label and frame
-        log_label = ttk.Label(main_container, text="📋 Activity Log", font=('Segoe UI', 10, 'bold'))
-        log_label.pack(anchor="w", pady=(5, 3))
-        
-        # ScrolledText with modern look
-        self.log = ScrolledText(main_container, height=14, wrap=tk.WORD,
-                                font=('Consolas', 9), bg='#f8f9fa', fg='#2c3e50',
-                                relief=tk.FLAT, bd=1, highlightthickness=0)
-        self.log.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
-
-        # Initial log message
-        log_append(self.log, "Ready. Select items and press 'Clean Selected'.")
-
-    def on_select_all_toggle(self) -> None:
+    def on_category_toggle(self) -> None:
         """
-        Toggle all checkboxes according to the select all state.
+        Refresh summary after a category checkbox click.
         """
-        state = self.var_select_all.get()
-        self.var_tmp.set(state)
-        self.var_user_cache.set(state)
-        self.var_thumbnails.set(state)
-        self.var_trash.set(state)
-        self.var_firefox.set(state)
-        self.var_chrome.set(state)
-        self.var_flatpak_user.set(state)
-        self.var_flatpak_repair_user.set(state)
-        self.var_flatpak_syscache.set(state)
-        self.var_flatpak_repair_system.set(state)
-        self.var_apt.set(state)
-        self.var_journal.set(state)
-        # New options
-        self.var_flatpak_app_cache.set(state)
-        self.var_apt_cache.set(state)
-        self.var_old_kernels.set(state)
+        self._update_summary()
+
+    def _category_vars(self) -> List[tk.BooleanVar]:
+        """
+        Return all category selection variables.
+        """
+        return [
+            self.var_tmp, self.var_user_cache, self.var_thumbnails, self.var_trash,
+            self.var_firefox, self.var_chrome, self.var_config_app_caches,
+            self.var_dev_tool_caches, self.var_user_lang_tool_caches,
+            self.var_flatpak_user, self.var_flatpak_repair_user,
+            self.var_flatpak_syscache, self.var_flatpak_repair_system, self.var_apt,
+            self.var_journal, self.var_flatpak_app_cache, self.var_apt_cache,
+            self.var_system_misc_caches, self.var_system_extra_caches, self.var_old_kernels,
+        ]
+
+    def _update_summary(self) -> None:
+        """
+        Update top summary line with selected categories and measurable cache size.
+        """
+        if not hasattr(self, "summary_var"):
+            return
+
+        selected_count = sum(1 for var in self._category_vars() if var.get())
+
+        measurable_total = sum(self.sizes_before.values()) if self.sizes_before else 0
+        self.summary_var.set(
+            f"Selected categories: {selected_count} | Measurable cache footprint: {human_mb(measurable_total)}"
+        )
 
     def _apply_autoselect_by_threshold(self, sizes_now: Dict[str, int]) -> None:
         """
@@ -643,6 +823,11 @@ class MintCleanerApp(tk.Tk):
             "apt": self.var_apt,
             "journal": self.var_journal,
             "flatpak_app_cache": self.var_flatpak_app_cache,
+            "config_app_caches": self.var_config_app_caches,
+            "dev_tool_caches": self.var_dev_tool_caches,
+            "user_lang_tool_caches": self.var_user_lang_tool_caches,
+            "system_misc_caches": self.var_system_misc_caches,
+            "system_extra_caches": self.var_system_extra_caches,
             "apt_cache": self.var_apt_cache,   # Now measurable via root
         }
 
@@ -667,6 +852,11 @@ class MintCleanerApp(tk.Tk):
             "apt": self.var_apt,
             "journal": self.var_journal,
             "flatpak_app_cache": self.var_flatpak_app_cache,
+            "config_app_caches": self.var_config_app_caches,
+            "dev_tool_caches": self.var_dev_tool_caches,
+            "user_lang_tool_caches": self.var_user_lang_tool_caches,
+            "system_misc_caches": self.var_system_misc_caches,
+            "system_extra_caches": self.var_system_extra_caches,
             "apt_cache": self.var_apt_cache,
         }
         for key, var in key_to_var_measurable.items():
@@ -691,20 +881,23 @@ class MintCleanerApp(tk.Tk):
         measurable = [
             "tmp", "user_cache", "thumbnails", "trash",
             "firefox", "chrome", "flatpak_syscache", "apt", "journal",
-            "flatpak_app_cache"
+            "flatpak_app_cache", "config_app_caches", "dev_tool_caches",
+            "user_lang_tool_caches", "system_misc_caches", "system_extra_caches", "apt_cache"
         ]
         sizes_now: Dict[str, int] = {}
+        root_measurable_keys = {
+            "tmp", "flatpak_syscache", "apt", "journal",
+            "system_misc_caches", "system_extra_caches", "apt_cache"
+        }
         for key in measurable:
             patterns = self.patterns.get(key, [])
-            sizes_now[key] = size_of_patterns(patterns)
-
-        # Special root path: APT package cache
-        apt_cache_patterns = ["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"]
-        try:
-            apt_size = HELPER.get_size_of_patterns(apt_cache_patterns)
-            sizes_now["apt_cache"] = apt_size
-        except Exception:
-            sizes_now["apt_cache"] = 0
+            if key in root_measurable_keys:
+                try:
+                    sizes_now[key] = HELPER.get_size_of_patterns(patterns)
+                except Exception:
+                    sizes_now[key] = 0
+            else:
+                sizes_now[key] = size_of_patterns(patterns)
 
         # Auto select by threshold
         self._apply_autoselect_by_threshold(sizes_now)
@@ -735,6 +928,7 @@ class MintCleanerApp(tk.Tk):
                     pass
 
         self.sizes_before = sizes_now
+        self._update_summary()
         log_append(self.log, "Sizes refreshed (APT cache size obtained via helper).")
 
     # ----------------------------- Plan and execution -----------------------------
@@ -769,6 +963,12 @@ class MintCleanerApp(tk.Tk):
         # Flatpak app cache
         if self.var_flatpak_app_cache.get():
             plan["user_py_delete"].append("~/.var/app/*/cache/*")
+        if self.var_config_app_caches.get():
+            plan["user_py_delete"] += self.patterns.get("config_app_caches", [])
+        if self.var_dev_tool_caches.get():
+            plan["user_py_delete"] += self.patterns.get("dev_tool_caches", [])
+        if self.var_user_lang_tool_caches.get():
+            plan["user_py_delete"] += self.patterns.get("user_lang_tool_caches", [])
 
         # User commands
         if self.var_flatpak_user.get():
@@ -789,6 +989,10 @@ class MintCleanerApp(tk.Tk):
             plan["root_rm_patterns"] += ["/var/tmp/flatpak-cache/*"]
         if self.var_apt_cache.get():
             plan["root_rm_patterns"] += ["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"]
+        if self.var_system_misc_caches.get():
+            plan["root_rm_patterns"] += self.patterns.get("system_misc_caches", [])
+        if self.var_system_extra_caches.get():
+            plan["root_rm_patterns"] += self.patterns.get("system_extra_caches", [])
 
         # Root commands
         if self.var_flatpak_repair_system.get():
@@ -840,22 +1044,36 @@ class MintCleanerApp(tk.Tk):
         if self.var_trash.get(): selected_keys.append("trash")
         if self.var_firefox.get(): selected_keys.append("firefox")
         if self.var_chrome.get(): selected_keys.append("chrome")
+        if self.var_config_app_caches.get(): selected_keys.append("config_app_caches")
+        if self.var_dev_tool_caches.get(): selected_keys.append("dev_tool_caches")
+        if self.var_user_lang_tool_caches.get(): selected_keys.append("user_lang_tool_caches")
         if self.var_flatpak_syscache.get(): selected_keys.append("flatpak_syscache")
         if self.var_apt.get(): selected_keys.append("apt")
         if self.var_journal.get(): selected_keys.append("journal")
         if self.var_flatpak_app_cache.get(): selected_keys.append("flatpak_app_cache")
         if self.var_apt_cache.get(): selected_keys.append("apt_cache")
+        if self.var_system_misc_caches.get(): selected_keys.append("system_misc_caches")
+        if self.var_system_extra_caches.get(): selected_keys.append("system_extra_caches")
 
         sizes_before_local = {}
+        root_measurable_keys = {
+            "tmp", "flatpak_syscache", "apt", "journal",
+            "system_misc_caches", "system_extra_caches", "apt_cache"
+        }
         for k in selected_keys:
-            if k == "apt_cache":
-                # size already obtained via helper, we store it from self.sizes_before
-                sizes_before_local[k] = self.sizes_before.get(k, 0)
+            if k in root_measurable_keys:
+                patterns = self.patterns.get(k, [])
+                if patterns:
+                    sizes_before_local[k] = HELPER.get_size_of_patterns(patterns)
+                else:
+                    sizes_before_local[k] = self.sizes_before.get(k, 0)
             else:
                 sizes_before_local[k] = size_of_patterns(self.patterns.get(k, []))
 
         plan = self.build_plan()
         if not (plan["user_py_delete"] or plan["user_cmds"] or plan["root_rm_patterns"] or plan["root_cmds"]):
+            selected_count = sum(1 for var in self._category_vars() if var.get())
+            log_append(self.log, f"[DEBUG] Selected category vars at clean click: {selected_count}")
             log_append(self.log, "[INFO] Nothing selected.")
             return
 
@@ -913,8 +1131,8 @@ class MintCleanerApp(tk.Tk):
         log_append(self.log, "Recalculating sizes after cleanup ...")
         reclaimed_total = 0
         for key in selected_keys:
-            if key == "apt_cache":
-                after = HELPER.get_size_of_patterns(["/var/cache/apt/archives/*", "/var/cache/apt/archives/partial/*"])
+            if key in root_measurable_keys:
+                after = HELPER.get_size_of_patterns(self.patterns.get(key, []))
             else:
                 after = size_of_patterns(self.patterns.get(key, []))
             before = sizes_before_local.get(key, 0)
@@ -922,8 +1140,66 @@ class MintCleanerApp(tk.Tk):
             reclaimed_total += reclaimed
             log_append(self.log, f"[{key}] before {human_mb(before)}, after {human_mb(after)}, reclaimed {human_mb(reclaimed)}")
 
-        log_append(self.log, f"Total reclaimed: {human_mb(reclaimed_total)}")
+        self._log_cleanup_success(reclaimed_total, len(selected_keys))
+        log_append(self.log, "Refreshing size view ...")
+        self.refresh_sizes()
         log_append(self.log, "=== Cleanup finished ===")
+
+    def _log_cleanup_success(self, reclaimed_total_bytes: int, selected_count: int) -> None:
+        """
+        Write a clear success block after cleanup and update visible success text.
+
+        :param reclaimed_total_bytes: Total reclaimed size in bytes.
+        :param selected_count: Number of selected measurable categories.
+        """
+        reclaimed_text = human_mb(reclaimed_total_bytes)
+        disk_free_now = shutil.disk_usage(os.path.expanduser("~")).free
+        free_now_text = human_gb(disk_free_now)
+
+        if reclaimed_total_bytes > 0:
+            trophy_text = ""
+            if reclaimed_total_bytes >= 500 * 1024 * 1024:
+                trophy_text = " Trophy unlocked: Great cleanup!"
+
+            self._show_timed_success_message(
+                f"Cleanup completed. You reclaimed {reclaimed_text}. "
+                f"Free space now: {free_now_text}.{trophy_text}"
+            )
+            log_append(self.log, "")
+            log_append(self.log, "========================================")
+            log_append(self.log, "CLEANUP SUCCESS")
+            log_append(self.log, f"You reclaimed: {reclaimed_text}")
+            log_append(self.log, f"Free space now: {free_now_text}")
+            log_append(self.log, f"Processed measurable categories: {selected_count}")
+            if trophy_text:
+                log_append(self.log, trophy_text.strip())
+            log_append(self.log, "Your system now has more free space.")
+            log_append(self.log, "========================================")
+            log_append(self.log, "")
+        else:
+            self._clear_success_message()
+            log_append(self.log, "Cleanup completed, but no measurable space was reclaimed.")
+
+    def _show_timed_success_message(self, message: str) -> None:
+        """
+        Show a green success message and hide it after 10 seconds.
+        """
+        if self.success_clear_after_id is not None:
+            try:
+                self.after_cancel(self.success_clear_after_id)
+            except Exception:
+                pass
+            self.success_clear_after_id = None
+
+        self.success_var.set(message)
+        self.success_clear_after_id = self.after(10_000, self._clear_success_message)
+
+    def _clear_success_message(self) -> None:
+        """
+        Clear the timed success message from the UI.
+        """
+        self.success_var.set("")
+        self.success_clear_after_id = None
 
 # ----------------------------- Helper entrypoint (runs as root) -----------------------------
 
@@ -1058,4 +1334,5 @@ if __name__ == "__main__":
         _root.withdraw()
         maybe_prompt_nemo_setup(_root)
         maybe_prompt_desktop_setup(_root)
+        _root.destroy()
         main()
